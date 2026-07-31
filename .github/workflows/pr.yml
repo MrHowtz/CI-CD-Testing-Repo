@@ -1,0 +1,39 @@
+# ---------------------------------------------------------------------------
+# PR GATE  (Azure DevOps equivalent: the "premerge" PR pipeline)
+#
+# Checks a proposed change before it is allowed into main. Builds nothing that
+# is kept, deploys nothing. Its only output is pass/fail, which branch
+# protection uses to block or allow the merge button.
+# ---------------------------------------------------------------------------
+name: PR
+
+on:
+  pull_request:              # ONLY on pull requests...
+    branches: [main]         # ...that target main.
+    # Deliberately no `push:` trigger. Your team's testpipeline.yaml has both,
+    # which is why every PR branch runs the suite twice.
+
+concurrency:
+  # One lock PER BRANCH (github.head_ref = the PR's source branch).
+  # Your team's current file uses a single global lock, so every branch in the
+  # repo queues behind one run.
+  group: pr-${{ github.head_ref }}
+  cancel-in-progress: true   # a new push to the PR cancels the stale run
+
+jobs:
+  verify:                    # <-- this name goes into branch protection
+    name: Verify
+    runs-on: ubuntu-latest
+    # No `environment:` here. Environments are for DEPLOYMENTS. Your current
+    # file sets `environment: test` on a job that only tests, which pollutes
+    # the repo's deployment history.
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check code format
+        run: bash ./scripts/format-check.sh
+
+      - name: Run tests
+        run: bash ./scripts/test.sh
