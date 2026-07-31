@@ -1,0 +1,69 @@
+# ---------------------------------------------------------------------------
+# CI + CD  (Azure DevOps equivalent: CI pipeline + the release it triggers)
+#
+# Runs when something lands on main. Builds ONE artifact, then hands that
+# same artifact to test, and then to prod.
+# ---------------------------------------------------------------------------
+name: CI
+
+on:
+  push:
+    branches: [main]           # i.e. when a PR is merged
+  workflow_dispatch:           # also lets you run it manually from the UI
+
+concurrency:
+  group: ci-main
+  cancel-in-progress: false    # never cancel a release build halfway through
+
+jobs:
+  # -------------------------------------------------------------------------
+  # STAGE-AGNOSTIC. No `environment:`. This job does not know or care
+  # whether the result is destined for test or prod.
+  # -------------------------------------------------------------------------
+  build:
+    name: Build artifact
+    runs-on: ubuntu-latest
+    outputs:
+      # Publish the version so later jobs can name the artifact correctly.
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: echo "version=$(cat app/version.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Build release
+        run: bash ./scripts/build.sh
+
+      - name: Upload artifact          # this is what makes it survive the job
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-${{ steps.version.outputs.version }}
+          path: out/app-release.tar.gz
+          retention-days: 30
+
+  # -------------------------------------------------------------------------
+  # STAGE 1: test. Runs automatically once build succeeds.
+  # -------------------------------------------------------------------------
+  deploy-test:
+    name: Deploy to test
+    needs: build                       # wait for build; also lets us read its outputs
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: test
+      artifact: app-release-${{ needs.build.outputs.version }}
+
+  # -------------------------------------------------------------------------
+  # STAGE 2: prod. Same artifact. Waits for test to succeed, THEN waits for
+  # a human to approve (because the prod environment has required reviewers).
+  # -------------------------------------------------------------------------
+  deploy-prod:
+    name: Deploy to prod
+    needs: [build, deploy-test]
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: prod
+      artifact: app-release-${{ needs.build.outputs.version }}
