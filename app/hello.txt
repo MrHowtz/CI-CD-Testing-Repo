@@ -1,0 +1,2 @@
+Hello from the sandbox app.
+This file stands in for the real Elixir release.
