@@ -1,0 +1,45 @@
+# ---------------------------------------------------------------------------
+# REUSABLE DEPLOY  (Azure DevOps equivalent: the Release pipeline definition)
+#
+# This has NO trigger of its own. It is a recipe that ci.yml calls twice:
+# once with environment=test, once with environment=prod.
+# Written once, used for every stage.
+# ---------------------------------------------------------------------------
+name: Deploy
+
+on:
+  workflow_call:               # "I am callable by other workflows"
+    inputs:
+      environment:
+        required: true
+        type: string           # will be "test" or "prod"
+      artifact:
+        required: true
+        type: string           # the name of the artifact to install
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    # THE ONLY STAGE-AWARE LINE IN THE WHOLE FILE.
+    # It decides which set of variables/secrets `vars.*` resolves to,
+    # and whether an approval is required before this job starts.
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout code           # we need scripts/deploy.sh
+        uses: actions/checkout@v4
+
+      - name: Download the artifact   # the package built by ci.yml
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact }}
+          path: ./incoming
+
+      - name: Deploy
+        run: bash ./scripts/deploy.sh ./incoming/app-release.tar.gz
+        env:
+          # These come from the ENVIRONMENT, not from this file.
+          # Same names, different values in test vs prod.
+          APP_ENV: ${{ vars.APP_ENV }}
+          TARGET_HOST: ${{ vars.TARGET_HOST }}
